@@ -297,11 +297,17 @@ class ReanchoringCPMC:
     def sketching(self, random_walkers_set):
 
         # squeeze r_0 = r_d = 1 for convenience
+        if len(random_walkers_set[0].shape) == 4:
+            random_walkers_set[0] = random_walkers_set[0][:,0,:,:]
+        if len(random_walkers_set[-1].shape) == 4:
+            random_walkers_set[-1] = random_walkers_set[-1][:,:,:,0]
 
-        random_walkers_set[0] = random_walkers_set[0][:,0,:,:]
-        random_walkers_set[-1] = random_walkers_set[-1][:,:,:,0]
+        # random_walkers_set: list of numpy arrays
+        # shape: [N,2,1], [N,1,2,1], ..., [N,1,2,1], [N,1,2]
 
         # construct sketching tensors randomly
+        # left_sketch and right_sketch: list of numpy arrays
+        # shape: [2,R], [R,2,R], ..., [R,2,R], [R,2] (R = self.sketch_rank)
         left_sketch = []
         d = 0
         left_sketch.append(np.einsum('in,ij->jn',np.random.normal(0, 1, [2, self.sketch_rank]) / np.sqrt(self.sketch_rank), self.cluster_basis))
@@ -319,6 +325,7 @@ class ReanchoringCPMC:
                                          np.random.normal(0, 1, [self.sketch_rank, 2, self.sketch_rank]) / np.sqrt(self.sketch_rank), self.cluster_basis))
         d = self.num_spins - 1
         right_sketch.append(np.einsum('mi,ij->mj',np.random.normal(0, 1, [self.sketch_rank, 2]) / np.sqrt(self.sketch_rank), self.cluster_basis))
+        
 
         # store the right sketching in prior
 
@@ -341,17 +348,17 @@ class ReanchoringCPMC:
 
         d = 0
 
-        bb = np.einsum('nir,nrs->is', random_walkers_set[d], right_cum_prod[d])
-        core_temp = bb.copy()
+        bb = np.einsum('nir,nrs->is', random_walkers_set[d], right_cum_prod[d])    # B(i1,R) = sum_{i2...id} Psi(i1,i2,...,id) T(i2,...,id,gamma)
+        core_temp = bb.copy()   # G_1_temp size: [2, R]
 
-        aa = np.einsum('ir,is->rs', left_sketch[d], core_temp)
+        aa = np.einsum('ir,is->rs', left_sketch[d], core_temp)   # A(xi,gamma) = sum_{i1} S_1(i1,xi) G_1_temp(i1,gamma)
 
         uu, ss, vv = np.linalg.svd(aa)
-        core = np.dot(core_temp, vv[:self.tt_rank[d]].T)
+        core = np.dot(core_temp, vv[:self.tt_rank[d]].T)    # compress the size of G_1_temp
         tt_cores.append(core / np.linalg.norm(core))
 
         aa_trimmed = np.dot(uu[:, :self.tt_rank[d]], np.diag(ss[:self.tt_rank[d]]))
-        qq = np.dot(np.diag(1 / ss[:self.tt_rank[d]]), uu[:, :self.tt_rank[d]].T)
+        qq = np.dot(np.diag(1 / ss[:self.tt_rank[d]]), uu[:, :self.tt_rank[d]].T)   # pseudo inverse
 
         core_prod = np.einsum('ir,nis->nrs', left_sketch[d], random_walkers_set[d])
         cum_prod = core_prod.copy()
@@ -362,7 +369,7 @@ class ReanchoringCPMC:
             bb = np.einsum('nrs,nsit->nrit', cum_prod, random_walkers_set[d])
             bb = np.einsum('nrit,ntq->riq', bb, right_cum_prod[d])
 
-            core_temp = np.einsum('pq,qir->pir', qq, bb)
+            core_temp = np.einsum('pq,qir->pir', qq, bb)    # multiply the pseudo inverse of A on B
 
             core_sketch = np.einsum('pir,qis->pqrs', left_sketch[d], core_temp)
             aa = np.einsum('pq,pqrs->rs', aa_trimmed, core_sketch)
@@ -372,7 +379,7 @@ class ReanchoringCPMC:
             tt_cores.append(core / np.linalg.norm(core))
 
             aa_trimmed = np.dot(uu[:, :self.tt_rank[d]], np.diag(ss[:self.tt_rank[d]]))
-            qq = np.dot(np.diag(1 / ss[:self.tt_rank[d]]), uu[:, :self.tt_rank[d]].T)
+            qq = np.dot(np.diag(1 / ss[:self.tt_rank[d]]), uu[:, :self.tt_rank[d]].T)   # pseudo inverse
 
             core_prod = np.einsum('pir,nqis->npqrs', left_sketch[d], random_walkers_set[d])
             cum_prod = np.einsum('npq,npqrs->nrs', cum_prod, core_prod)
